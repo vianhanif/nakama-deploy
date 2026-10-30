@@ -72,7 +72,7 @@ RUN bun install --frozen-lockfile --production --ignore-scripts \
 
 # Keep FFmpeg's video libraries out of the runtime image. These pinned static
 # binaries cover both published architectures without Debian's GUI dependencies.
-FROM --platform=$BUILDPLATFORM alpine:3.22 AS ffmpeg-binaries
+FROM --platform=$BUILDPLATFORM alpine:3.24 AS ffmpeg-binaries
 ARG TARGETARCH
 RUN set -eu; \
   case "$TARGETARCH" in \
