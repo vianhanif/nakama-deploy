@@ -23,7 +23,7 @@ RUN git init /app/source \
   && git checkout FETCH_HEAD \
   && rm -rf .git
 
-FROM --platform=$BUILDPLATFORM oven/bun:1.4.3-slim@sha256:14a223fa35747ec728bce300ef85888bc5f7958164d15bbba6a54b22b52a3288 AS web-builder
+FROM --platform=$BUILDPLATFORM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4 AS web-builder
 WORKDIR /app
 
 COPY --from=source /app/source/package.json /app/source/bun.lock ./
@@ -55,7 +55,7 @@ COPY --from=web-builder /app/apps/platform/teams/dist /app/apps/platform/teams/d
 # Production runtime dependencies are installed from a committed manifest and
 # lockfile. Re-resolving version ranges at image build time let two builds of
 # the same commit ship different transitive bytes, so the lockfile is the input.
-FROM oven/bun:1.4.3-slim@sha256:14a223fa35747ec728bce300ef85888bc5f7958164d15bbba6a54b22b52a3288 AS runtime-deps
+FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4 AS runtime-deps
 WORKDIR /runtime-deps
 
 # The Codex and Claude Code binaries are about 670 MB, half the image. The
@@ -88,7 +88,7 @@ RUN set -eu; \
   chmod +x /ffmpeg /ffprobe
 
 # --- Production runtime (server + workspace packages + built static assets) ---
-FROM oven/bun:1.4.3-slim@sha256:14a223fa35747ec728bce300ef85888bc5f7958164d15bbba6a54b22b52a3288 AS runtime
+FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4 AS runtime
 WORKDIR /app
 
 # HTML artifact → PDF export (services/html-pdf.ts). WeasyPrint comes from pip:
