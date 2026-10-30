@@ -1,0 +1,45 @@
+name: ghcr-pull-test
+
+# Proves the registry artifact is pullable and boots, independent of the build
+# job. Guards against "built fine, but nobody can consume it" regressions.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to test"
+        default: test-ghcr
+        required: false
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/nakama-deploy/nakama
+
+jobs:
+  pull:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull
+        run: docker pull "${{ env.IMAGE }}:${{ inputs.tag || 'test-ghcr' }}"
+
+      - name: Boot-check pulled image
+        run: |
+          set -euo pipefail
+          docker run -d --name pulled \
+            -e NAKAMA_SECRETS_KEY="$(openssl rand -base64 32)" \
+            -p 4310:4310 "${{ env.IMAGE }}:${{ inputs.tag || 'test-ghcr' }}"
+          for i in $(seq 1 40); do
+            curl -fsS -o /dev/null http://127.0.0.1:4310/health && exit 0
+            sleep 1
+          done
+          docker logs pulled | tail -50
+          exit 1

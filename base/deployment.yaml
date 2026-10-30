@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nakama
+  namespace: nakama
+  labels:
+    app.kubernetes.io/name: nakama
+spec:
+  # SQLite is a single-writer store. Two pods on one volume corrupt it, so the
+  # replica count is fixed at 1 and rolling updates are disabled (Recreate
+  # guarantees the old pod releases the volume before the new one starts).
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nakama
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nakama
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: nakama
+          image: nakama:local
+          imagePullPolicy: Never
+          ports:
+            - name: http
+              containerPort: 4310
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: NAKAMA_HOST
+              value: 0.0.0.0
+            - name: NAKAMA_PORT
+              value: "4310"
+            - name: NAKAMA_CONFIG_DIR
+              value: /nakama/data
+            - name: DATABASE_URL
+              value: file:/nakama/data/sqlite/nakama.sqlite
+            # The encryption key for stored secrets. Losing or rotating this
+            # makes existing ciphertext unreadable — treat it as permanent.
+            - name: NAKAMA_SECRETS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nakama-secret
+                  key: NAKAMA_SECRETS_KEY
+            - name: HOME
+              value: /nakama/data
+          volumeMounts:
+            - name: data
+              mountPath: /nakama/data
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 24
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            # Upstream guidance: ~200 MB idle, 1 vCPU / 1 GB is enough.
+            requests:
+              memory: 256Mi
+              cpu: 100m
+            limits:
+              memory: 1Gi
+              cpu: "1"
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: nakama-data

@@ -1,0 +1,10 @@
+# secrets
+.env
+.env.local
+overlays/local/secret.yaml
+env/*.env
+
+# build artifacts
+/tmp/
+*.log
+.DS_Store
