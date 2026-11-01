@@ -37,3 +37,12 @@ That is a poor fit for all-day use of a ~200 MB app.
 - Native artifact is not byte-identical to the image. Mitigated by shared pin + mirrored steps,
   not by construction.
 - Does not survive reboot without `pm2 save` / `pm2 resurrect`.
+
+## Follow-up fix (2026-11-01)
+`env_file` in the pm2 ecosystem file is **silently ignored** by pm2 — it is not a supported key.
+The server booted anyway (it only rejects *secret writes* without a key), so the failure surfaced
+late in the UI: "Set NAKAMA_SECRETS_KEY before saving secrets."
+
+Fix: the ecosystem file now parses `~/Data/nakama/.env` at load time and merges it into `env`,
+failing loudly if the file or key is missing. Verified: `NAKAMA_SECRETS_KEY` present in the
+process env, `POST /api/secrets` returns 401 (auth) instead of the missing-key error.
