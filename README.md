@@ -159,6 +159,74 @@ pointed at the 9router gateway. No key is baked into the image or manifests.
 - Logs: `~/Data/nakama/logs/{out,error}.log`.
 - Survives crashes (`autorestart`), not reboots — add `pm2 save` if you want `pm2 resurrect`.
 
+## Adding an MCP server (Lark example)
+
+Nakama's MCP client accepts two transports (`apps/server/src/services/mcp-client-manager.ts`):
+
+| Transport | Config shape |
+|---|---|
+| `http` | `{ "url": "...", "headers": {...} }` |
+| `stdio` | `{ "command": "/abs/path", "args": [...], "env": {...} }` |
+
+Two behaviours to know before wiring a stdio server:
+
+1. **The child inherits a filtered env** — only `HOME, LOGNAME, PATH, SHELL, TERM, USER` plus
+   whatever you put in `config.env`. A binary that lives outside those PATH entries will not be found.
+2. **`HOME` is the data dir** (`~/Data/nakama`, set by the pm2 ecosystem file), not the real home.
+   Any `source "$HOME/..."` in a wrapper breaks. Resolve the real home from the passwd db instead:
+   `eval echo "~$(id -un)"`.
+
+Also: `cwd` is set to the profile's soul dir when both `orgId` and `profileId` are known, so every
+path in `command`/`args` must be **absolute**.
+
+### Reference: Lark/Feishu chat MCP
+
+Wrapper — credentials never go into the Nakama UI or its DB, and stdout stays reserved for MCP
+(any log line must go to stderr):
+
+`~/.config/nakama/lark-mcp.sh` (mode 0700, outside this repo):
+
+```zsh
+#!/bin/zsh
+REAL_HOME=$(eval echo "~$(id -un)")
+[ -r "$REAL_HOME/.zsh/secrets.zsh" ] && source "$REAL_HOME/.zsh/secrets.zsh" >/dev/null 2>&1
+export APP_ID="${LARK_APP_ID:-$APP_ID}" APP_SECRET="${LARK_APP_SECRET:-$APP_SECRET}"
+[ -z "$APP_ID" ] && { echo "lark-mcp: missing credentials" >&2; exit 1; }
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"   # npx needs node
+exec npx -y @larksuiteoapi/lark-mcp@0.5.1 mcp \
+  -t im.v1.message.list,im.v1.chat.list --domain https://open.larksuite.com
+```
+
+Register it (Control Center → MCP, or the API). `POST /v1/mcp/servers`:
+
+```json
+{
+  "name": "lark",
+  "transport": "stdio",
+  "enabled": true,
+  "connect": true,
+  "config": { "command": "/Users/<you>/.config/nakama/lark-mcp.sh" }
+}
+```
+
+Dry-run first with `POST /v1/mcp/servers/test` and the same `transport` + `config`; it returns the
+tool list without persisting anything. Expect `im_v1_chat_list` and `im_v1_message_list`.
+
+Attach the server to an agent profile afterwards — registering alone does not grant a profile access.
+
+### Verified 2026-11-02
+
+Ran the wrapper under the same env the MCP client produces (`HOME=~/Data/nakama`,
+`PATH=/usr/bin:/bin:/usr/sbin:/sbin`) and drove a raw JSON-RPC handshake over stdin:
+
+| Step | Result |
+|---|---|
+| `initialize` | ✅ `lark-mcp-server 0.5.1` |
+| `tools/list` | ✅ `im_v1_chat_list`, `im_v1_message_list` |
+
+The `[WARN] StorageManager ... unknown error` lines on stderr are the built-in OAuth token store
+failing to reach a keychain in a headless child — harmless, the app-credential path works.
+
 ## Deliberate omissions
 
 - **Updater service** — upstream's convenience updater mounts `/var/run/docker.sock`, which is
