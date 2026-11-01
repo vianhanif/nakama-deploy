@@ -12,7 +12,7 @@ the image is built by us from a pinned ref of our fork, then deployed from a pin
 
 ## Status
 
-Tested end-to-end on local k3s (Colima), 2026-10-30:
+Tested end-to-end on local k3s (Colima), 2026-11-01:
 
 | Check | Result |
 |---|---|
@@ -23,14 +23,32 @@ Tested end-to-end on local k3s (Colima), 2026-10-30:
 | NodePort 30431 reachable | ✅ 200 |
 | Data survives pod restart | ✅ marker + health 200 |
 
+Native pm2 driver, 2026-11-01:
+
+| Check | Result |
+|---|---|
+| `make local-build` (fork, `main`) | ✅ |
+| `pm2` app online, 0 restarts | ✅ |
+| `GET /health` on :4310 | ✅ 200 |
+| Measured RSS (server + worker) | **259–364 MB** |
+
 ## Requirements
 
-- Docker with BuildKit (`docker buildx`) — on macOS: `brew install docker-buildx`
-- `kubectl`, `kustomize`
-- A local cluster. Colima with k3s is enough:
+Two runtimes, same source pin. Pick per task:
+
+| | Native (daily) | Image + k3s (parity) |
+|---|---|---|
+| Needs | `bun` | Docker with BuildKit, `kubectl`, `kustomize` |
+| Idle RAM | **~365 MB** (measured) | ~2 GB (Colima VM) |
+| Startup | ~2 s | ~40 s |
+| Use for | day-to-day work | validating what we would ship |
 
 ```bash
-brew install colima kustomize
+# native daily driver
+brew install oven-sh/bun/bun
+
+# image path (optional)
+brew install colima kustomize docker-buildx
 colima start --cpu 4 --memory 4 --kubernetes
 ```
 
@@ -65,6 +83,18 @@ open http://localhost:30431
 
 ## Make targets
 
+### Native daily driver (pm2, no Docker)
+
+| Target | Effect |
+|---|---|
+| `make local-init` | Create `~/Data/nakama` + secret (idempotent; never regenerates an existing key) |
+| `make local-build` | Clone/checkout the fork at `NAKAMA_VERSION`, build all bundles |
+| `make local-up` | `pm2 start` in namespace `nakama`, then health-check |
+| `make local-restart` / `local-down` | Restart / stop + clean worker |
+| `make local-logs` / `local-status` / `local-test` | Observe |
+
+### Image + cluster (parity)
+
 | Target | Effect |
 |---|---|
 | `make validate` | Render manifests + client dry-run. No cluster changes. |
@@ -75,8 +105,17 @@ open http://localhost:30431
 | `make down` | Delete resources, keep the PVC. |
 | `make reset` | Delete the namespace — **destroys the SQLite volume**. |
 
-All targets pin `--context colima` (`KUBE_CONTEXT=` overrides). This is deliberate: the same
+All cluster targets pin `--context colima` (`KUBE_CONTEXT=` overrides). This is deliberate: the same
 kubeconfig also carries production EKS contexts, and an accidental apply there is not recoverable.
+
+### Why two runtimes
+
+`scripts/local-build.sh` runs the same fork, the same ref, and the same build steps as
+`src/nakama/Dockerfile`. If those two disagree, the daily driver is running something the image
+does not — treat it as a bug, not a preference.
+
+Native is the daily driver because Colima's VM costs ~1–1.5 GB before any workload runs. The image
+path stays the source of truth for "would this work when we ship it".
 
 ## Architecture
 
@@ -111,6 +150,15 @@ corrupt it. `strategy: Recreate` ensures the old pod releases the volume before 
 LLM provider: configure in **Control Center → AI providers** using the `openai_compatible` provider
 pointed at the 9router gateway. No key is baked into the image or manifests.
 
+## Native driver notes
+
+- Data and secret live in `~/Data/nakama` (`NAKAMA_DATA_DIR` to override), never in the repo.
+  The secret is a `0600` env file; `make local-init` will not regenerate an existing key.
+- Nakama's server supervises an `automation` worker **through the shared pm2 daemon**, so that
+  worker shows up in `pm2 list` under the `default` namespace. `make local-down` deletes it too.
+- Logs: `~/Data/nakama/logs/{out,error}.log`.
+- Survives crashes (`autorestart`), not reboots — add `pm2 save` if you want `pm2 resurrect`.
+
 ## Deliberate omissions
 
 - **Updater service** — upstream's convenience updater mounts `/var/run/docker.sock`, which is
@@ -134,6 +182,10 @@ pointed at the 9router gateway. No key is baked into the image or manifests.
 ```
 nakama-deploy/
 ├── src/nakama/Dockerfile   # upstream Dockerfile + fork-fetch source stage
+├── scripts/
+│   ├── local-build.sh      # native build: same fork, ref and steps as the image
+│   ├── local-init.sh       # ~/Data/nakama + NAKAMA_SECRETS_KEY (idempotent)
+│   └── pm2/ecosystem.nakama.config.js
 ├── base/                   # kustomize: namespace, pvc, service, deployment
 ├── overlays/local/         # NodePort 30431 + secret.yaml (gitignored)
 ├── env/                    # environment templates

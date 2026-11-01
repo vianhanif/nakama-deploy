@@ -1,4 +1,5 @@
-.PHONY: help build up down logs shell validate reset status test
+.PHONY: help build up down logs shell validate reset status test \
+        local-init local-build local-up local-down local-restart local-logs local-status local-test
 
 IMAGE_NAME ?= nakama:local
 NAMESPACE  := nakama
@@ -16,6 +17,16 @@ help:
 	@echo "  make shell      exec into the running pod"
 	@echo "  make down       delete all resources (keeps PVC)"
 	@echo "  make reset      delete resources AND data"
+	@echo ""
+	@echo "Native daily driver (pm2, no Docker — ~250 MB idle)"
+	@echo "  make local-init     create ~/Data/nakama + secret (idempotent)"
+	@echo "  make local-build    bun install + build bundles from the fork"
+	@echo "  make local-up       pm2 start (namespace: nakama)"
+	@echo "  make local-down     pm2 delete"
+	@echo "  make local-restart  pm2 restart"
+	@echo "  make local-logs     pm2 logs"
+	@echo "  make local-status   pm2 describe"
+	@echo "  make local-test     health check on :4310"
 	@echo ""
 	@echo "Context: $$($(KUBECTL) config current-context)"
 
@@ -72,3 +83,45 @@ test:
 	@$(KUBECTL) -n $(NAMESPACE) port-forward svc/nakama 4310:4310 >/dev/null 2>&1 & sleep 5
 	@echo -n "[test] health after restart: "; curl -fsS -o /dev/null -w "%{http_code}\n" http://127.0.0.1:4310/health
 	@echo "[test] PASS"
+
+# ---------------------------------------------------------------------------
+# Native daily driver (pm2, no Docker)
+#
+# Same fork and same NAKAMA_VERSION as the image build, so the two runtimes
+# cannot drift. Data + secret live in ~/Data/nakama, outside the repo.
+# ---------------------------------------------------------------------------
+PM2_CONFIG := scripts/pm2/ecosystem.nakama.config.js
+PORT_LOCAL ?= 4310
+
+local-init:
+	@bash scripts/local-init.sh
+
+local-build:
+	@NAKAMA_VERSION=$(or $(NAKAMA_VERSION),main) bash scripts/local-build.sh
+
+local-up: local-init
+	@pm2 start $(PM2_CONFIG) --update-env
+	@sleep 3
+	@$(MAKE) --no-print-directory local-test
+
+local-down:
+	@pm2 delete nakama 2>/dev/null || true
+	@# Nakama's server supervises an `automation` worker via pm2 itself, so it
+	@# lands in the shared daemon's default namespace. Clean it up too.
+	@pm2 delete automation 2>/dev/null || true
+
+local-restart:
+	@pm2 restart nakama --update-env
+	@sleep 3
+	@$(MAKE) --no-print-directory local-test
+
+local-logs:
+	@pm2 logs nakama
+
+local-status:
+	@pm2 describe nakama
+
+local-test:
+	@printf '[local-test] health: '
+	@curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:$(PORT_LOCAL)/health || \
+		{ echo "FAIL — check 'make local-logs'"; exit 1; }
