@@ -1,5 +1,5 @@
 .PHONY: help build up down logs shell validate reset status test \
-        local-init local-build local-up local-down local-restart local-logs local-status local-test
+        local-init local-build local-up local-down local-restart local-logs local-status local-test local-backups local-restore local-backup-check
 
 IMAGE_NAME ?= nakama:local
 NAMESPACE  := nakama
@@ -27,6 +27,9 @@ help:
 	@echo "  make local-logs     pm2 logs"
 	@echo "  make local-status   pm2 describe"
 	@echo "  make local-test     health check on :4310"
+	@echo "  make local-backups  list daily backups (~/Data/nakama-backups)"
+	@echo "  make local-restore  FILE=<backup> restore a backup (REPLACES live data)"
+	@echo "  make local-backup-check  export + list the archive contents"
 	@echo ""
 	@echo "Context: $$($(KUBECTL) config current-context)"
 
@@ -111,9 +114,10 @@ local-down:
 	@pm2 delete automation 2>/dev/null || true
 
 local-restart:
-	@pm2 restart nakama --update-env
-	@sleep 3
-	@$(MAKE) --no-print-directory local-test
+	@# pm2 restart keeps the stored env and ignores edits to the ecosystem
+	@# file, so recreating the app is the only reliable way to reload it.
+	@pm2 delete nakama automation 2>/dev/null || true
+	@$(MAKE) --no-print-directory local-up
 
 local-logs:
 	@pm2 logs nakama
@@ -125,3 +129,17 @@ local-test:
 	@printf '[local-test] health: '
 	@curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:$(PORT_LOCAL)/health || \
 		{ echo "FAIL — check 'make local-logs'"; exit 1; }
+
+# Backups are produced by the server itself (NAKAMA_BACKUP_DIR, see the pm2
+# ecosystem file): one AES-256-GCM file per day, 7 kept.
+local-backups:
+	@ls -lh $(HOME)/Data/nakama-backups 2>/dev/null || echo 'no backups yet (first one is due 24h after start)'
+
+local-restore:
+	@test -n "$(FILE)" || { echo 'usage: make local-restore FILE=~/Data/nakama-backups/nakama-*.zip.enc'; exit 1; }
+	@node scripts/nakama-backup.mjs restore "$(FILE)"
+
+# Migrate this machine -> a fresh instance (or back): export, then restore there.
+local-backup-check:
+	@node scripts/nakama-backup.mjs export /tmp/nakama-export-check.zip && \
+	  unzip -l /tmp/nakama-export-check.zip | head -8 && rm -f /tmp/nakama-export-check.zip

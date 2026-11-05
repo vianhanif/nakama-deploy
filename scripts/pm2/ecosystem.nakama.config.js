@@ -71,10 +71,21 @@ module.exports = {
         NAKAMA_PORT: "4310",
         PORT: "4310",
         NAKAMA_CONFIG_DIR: DATA,
+        // Upstream refuses to start if this is inside the data root (the next
+        // export would sweep the backups in), so it is a sibling directory.
+        // Enables the built-in daily AES-256-GCM backup, 7-file retention.
+        NAKAMA_BACKUP_DIR: `${DATA}-backups`,
         DATABASE_URL: `file:${DATA}/sqlite/nakama.sqlite`,
         BUN_INSTALL_BIN: `${DATA}/.bun/bin`,
         BUN_INSTALL_GLOBAL_DIR: `${DATA}/.bun/install/global`,
         HOME: DATA,
+        // HOME is the data root for isolation, but package-manager caches must
+        // not land there: the exporter caps archives at 10k entries, and a few
+        // npx runs alone add ~10k files (found the hard way). Caches live in a
+        // sibling directory that is never exported.
+        XDG_CACHE_HOME: `${DATA}-cache`,
+        npm_config_cache: `${DATA}-cache/npm`,
+        BUN_INSTALL_CACHE_DIR: `${DATA}-cache/bun`,
       },
       autorestart: true,
       // Bun exits non-zero while the SQLite file is locked by a previous run.

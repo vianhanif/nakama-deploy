@@ -9,3 +9,17 @@ spec:
   resources:
     requests:
       storage: 1Gi
+---
+# Backups must NOT live inside the data volume: the exporter would sweep them
+# into the next archive (upstream asserts this at startup).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nakama-backups
+  namespace: nakama
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi

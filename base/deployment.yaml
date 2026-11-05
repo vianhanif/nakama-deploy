@@ -52,9 +52,15 @@ spec:
                   key: NAKAMA_SECRETS_KEY
             - name: HOME
               value: /nakama/data
+            # Built-in daily AES-256-GCM backup with 7-file retention. Must be
+            # outside NAKAMA_CONFIG_DIR or the server exits at startup.
+            - name: NAKAMA_BACKUP_DIR
+              value: /nakama/backups
           volumeMounts:
             - name: data
               mountPath: /nakama/data
+            - name: backups
+              mountPath: /nakama/backups
           startupProbe:
             httpGet:
               path: /health
@@ -87,3 +93,6 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: nakama-data
+        - name: backups
+          persistentVolumeClaim:
+            claimName: nakama-backups

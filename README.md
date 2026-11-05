@@ -227,13 +227,72 @@ Ran the wrapper under the same env the MCP client produces (`HOME=~/Data/nakama`
 The `[WARN] StorageManager ... unknown error` lines on stderr are the built-in OAuth token store
 failing to reach a keychain in a headless child — harmless, the app-credential path works.
 
+## Backups and machine migration
+
+Nakama ships the whole feature; this repo only wires it up. `NAKAMA_BACKUP_DIR` turns on an
+in-process job that writes **one AES-256-GCM `nakama-<stamp>.zip.enc` per day and keeps 7**.
+The key is `NAKAMA_SECRETS_KEY`, so the archive is useless without the same key file.
+
+| Runtime | Backup dir | Notes |
+|---|---|---|
+| Native (pm2) | `~/Data/nakama-backups` | created at startup, mode 0700 |
+| k8s | `/nakama/backups` on PVC `nakama-backups` | second volume, **not** a subPath of the data PVC |
+
+Upstream rejects a backup dir inside the data root (the next export would swallow it) and
+**exits at startup** if the check fails — a wrong path is a boot failure, not a warning.
+
+```bash
+make local-backups       # list what exists (first one appears at startup, then every 24h)
+make local-backup-check  # export now + list archive contents
+make local-restore FILE=~/Data/nakama-backups/nakama-2026-11-05T063853Z.zip.enc
+```
+
+`make local-restore` decrypts the `.enc` (or takes a plain `.zip`) and drives
+`/v1/platform/data/import/preview` then `/import/restore`. Restore **replaces** live databases,
+and the connection dies before the response returns — the server tears the database down
+mid-request. That is expected; start the app again afterwards.
+
+### Moving an install to another machine
+
+```bash
+# old machine
+make local-backup-check          # or just use the newest .enc in ~/Data/nakama-backups
+# new machine (same NAKAMA_SECRETS_KEY, or provider keys must be re-entered)
+make local-init && make local-up
+make local-restore FILE=/path/to/nakama-<stamp>.zip.enc
+```
+
+Verified on two local instances, 2026-11-05:
+
+| Step | Result |
+|---|---|
+| Export from live instance | ✅ 386 files, 1.8 MB |
+| Fresh instance + own admin | ✅ 201 |
+| Restore plain `.zip` into fresh instance | ✅ users + profiles match source |
+| Restore encrypted `.zip.enc` | ✅ decrypt path works |
+| Scheduled backup on boot | ✅ `nakama-2026-11-05T063853Z.zip.enc`, 0600, `NKBK1` magic |
+
+**Treat an export ZIP as key material.** It contains `.env` (`NAKAMA_SECRETS_KEY`),
+`local-auth-token` and `tool-credentials.key` in plaintext — that is what makes a restore work on
+another host. Only the scheduled backups are encrypted at rest; a downloaded `.zip` is not.
+
+### Two gotchas found while wiring this
+
+- **`pm2 restart` does not reload the ecosystem file.** It reuses the stored env, so edits appear
+  to do nothing (and a half-updated env can drop `NAKAMA_SECRETS_KEY` entirely).
+  `make local-restart` now deletes and re-creates the app.
+- **Package-manager caches must not live in the data root.** `HOME` points at the data dir for
+  isolation, so `npx`/`npm` filled it with ~12k cache files and the exporter refused
+  (`Archive exceeds the 10000 entry limit`). The ecosystem file now pins `XDG_CACHE_HOME`,
+  `npm_config_cache` and `BUN_INSTALL_CACHE_DIR` to a sibling directory.
+
 ## Deliberate omissions
 
 - **Updater service** — upstream's convenience updater mounts `/var/run/docker.sock`, which is
   root-equivalent on the host. Upgrades here go through `kubectl set image`.
 - **Ingress/TLS** — NodePort is enough locally. Add an overlay when there is a real hostname.
-- **Backups** — the PVC is the only copy today. Add a second PVC on `NAKAMA_BACKUP_DIR` before
-  putting real data in it.
+- **Off-machine backups** — backups land on a second PVC (cluster) or a sibling directory
+  (native), never off the host. Ship them somewhere else before the data matters.
 - **HA** — blocked by SQLite. Out of scope until the storage question is re-examined.
 
 ## Risks
