@@ -179,6 +179,29 @@ Two behaviours to know before wiring a stdio server:
 Also: `cwd` is set to the profile's soul dir when both `orgId` and `profileId` are known, so every
 path in `command`/`args` must be **absolute**.
 
+### Generic stdio launcher
+
+Any stdio server that needs the user's real home (AWS config, `uvx`/`npx` caches, dotfiles) goes
+through one wrapper instead of an inline `env` block. `~/.config/nakama/mcp-stdio.sh` (mode 0700,
+outside this repo):
+
+```zsh
+#!/bin/zsh
+REAL_HOME=$(eval echo "~$(id -un)")          # `~user` ignores $HOME
+export HOME="$REAL_HOME"
+export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH"
+export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"   # never the data root
+export UV_CACHE_HOME="$XDG_CACHE_HOME/uv" npm_config_cache="$XDG_CACHE_HOME/npm"
+[ -r "$HOME/.zsh/secrets.zsh" ] && source "$HOME/.zsh/secrets.zsh" >/dev/null 2>&1
+exec "$@"
+```
+
+`config`: `{ "command": "/bin/zsh", "args": ["/Users/<you>/.config/nakama/mcp-stdio.sh", "uvx",
+"mcp-server-motherduck", "--db-path", "/Users/<you>/.local/share/duckdb/mcp.duckdb"] }`
+
+Caches matter: the exporter caps archives at 10k entries, and a `HOME`-relative package cache fills
+that up on its own.
+
 ### Reference: Lark/Feishu chat MCP
 
 Wrapper — credentials never go into the Nakama UI or its DB, and stdout stays reserved for MCP
@@ -223,6 +246,26 @@ Ran the wrapper under the same env the MCP client produces (`HOME=~/Data/nakama`
 |---|---|
 | `initialize` | ✅ `lark-mcp-server 0.5.1` |
 | `tools/list` | ✅ `im_v1_chat_list`, `im_v1_message_list` |
+
+### Mirrored from the OpenCode config (2026-11-05)
+
+Everything the local OpenCode CLI has, minus the two that already existed (`exa`, `firecrawl` —
+registered but not attached to a profile):
+
+| Server | Transport | Notes |
+|---|---|---|
+| `router-gateway` | http | `Authorization` header, sealed in the DB like every other secret |
+| `grafana-prod` / `grafana-sandbox` | stdio | `uvx mcp-grafana` |
+| `metabase-production` / `metabase-sandbox` | stdio | `npx @imlewc/metabase-server` |
+| `lark-chat` | stdio | `lark-mcp.sh` |
+| `tldraw` | http | public, no auth |
+| `jam` | http | `Authorization: Bearer $JAM_API_KEY` |
+| `duckdb` | stdio | `mcp-stdio.sh` + `uvx mcp-server-motherduck --db-path <abs>` |
+| `aws-mcp` | stdio | `mcp-stdio.sh` + `uvx mcp-proxy-for-aws@latest`; needs the real `~/.aws` |
+
+Providers: `9router` (`General` 200k/32k, `General_Opencode` 128k/32k, `wire_api=responses`) and
+`9router-test` (`ROUTER9_TEST_API_KEY`). Both use `type=openai_compatible`, and the key is written
+through `PUT /v1/providers/:id/secret`, never `PUT /v1/providers/:id` — that route rejects inline keys.
 
 The `[WARN] StorageManager ... unknown error` lines on stderr are the built-in OAuth token store
 failing to reach a keychain in a headless child — harmless, the app-credential path works.
