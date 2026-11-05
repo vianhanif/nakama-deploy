@@ -216,6 +216,7 @@ REAL_HOME=$(eval echo "~$(id -un)")
 export APP_ID="${LARK_APP_ID:-$APP_ID}" APP_SECRET="${LARK_APP_SECRET:-$APP_SECRET}"
 [ -z "$APP_ID" ] && { echo "lark-mcp: missing credentials" >&2; exit 1; }
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"   # npx needs node
+export npm_config_cache="$REAL_HOME/.npm" XDG_CACHE_HOME="$REAL_HOME/.cache"   # never the data dir
 exec npx -y @larksuiteoapi/lark-mcp@0.5.1 mcp \
   -t im.v1.message.list,im.v1.chat.list --domain https://open.larksuite.com
 ```

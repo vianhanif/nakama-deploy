@@ -29,6 +29,12 @@ same working environment rather than a second, differently-equipped one.
 Profiles keep `model: null`, which resolves to the default provider's default model — no per-profile
 model write needed.
 
+## Follow-up bug (fixed)
+Registering `lark-chat` re-created `~/Data/nakama/.npm` (6.2k files) — the MCP child gets a filtered
+env that drops `npm_config_cache`, so `npx` fell back to `$HOME` = the data root. The exporter's
+10k-entry cap would have started refusing backups again. `lark-mcp.sh` now pins the npm/XDG caches
+to the real home; data root is back to 389 files. Any future `npx`-based server needs the same.
+
 ## Risks
 - `jam`'s API key and `router-gateway`'s gateway key live in Nakama's DB (sealed, redacted on read,
   but present in a plain export ZIP). Lark avoids that via its wrapper.
