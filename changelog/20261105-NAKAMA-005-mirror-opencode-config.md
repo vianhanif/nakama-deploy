@@ -26,8 +26,8 @@ same working environment rather than a second, differently-equipped one.
 | lark-chat | 2 | connected |
 | jam | 39 | connected |
 
-Profiles keep `model: null`, which resolves to the default provider's default model — no per-profile
-model write needed.
+Profiles were left at `model: null` at this point (it falls back to the default provider's default
+model). That changed in NAKAMA-006, which pinned the model explicitly.
 
 ## Follow-up bug (fixed)
 Registering `lark-chat` re-created `~/Data/nakama/.npm` (6.2k files) — the MCP child gets a filtered

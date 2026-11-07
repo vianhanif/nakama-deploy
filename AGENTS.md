@@ -28,6 +28,15 @@ Deployment packaging for the Nakama AI-agent platform. Source lives in our fork
   one. Either grant it (`update users set is_platform_admin=1 where id='user_local_client'`) or
   pass `NAKAMA_TOKEN`.
 
+## MCP stdio quirks
+
+- **Env filter** — MCP child gets only `HOME, LOGNAME, PATH, SHELL, TERM, USER` + `config.env`.
+  Package-manager caches must be pinned to the real home; falling back to the data root hits the
+  10k-entry export cap. Use `~/.config/nakama/mcp-stdio.sh` for any `uvx`/`npx`-based server.
+- **Model resolution** — stored model format is `providerId::modelId` (double colon). A single colon
+  API call succeeds (200), but `decodeStoredModelSelection` silently fails, and the profile falls
+  back to the default model. Always write the double colon.
+
 ## pm2 quirks
 - `pm2 restart` ignores ecosystem-file edits — delete + start to reload.
 - Keep package-manager caches out of the data root: the exporter caps archives at 10k entries.

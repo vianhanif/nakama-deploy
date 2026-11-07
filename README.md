@@ -23,14 +23,19 @@ Tested end-to-end on local k3s (Colima), 2026-11-01:
 | NodePort 30431 reachable | ✅ 200 |
 | Data survives pod restart | ✅ marker + health 200 |
 
-Native pm2 driver, 2026-11-01:
+Native pm2 driver, running since 2026-11-01 (continuous operation):
 
 | Check | Result |
 |---|---|
 | `make local-build` (fork, `main`) | ✅ |
-| `pm2` app online, 0 restarts | ✅ |
+| `pm2` app online, 0 intentional restarts | ✅ |
 | `GET /health` on :4310 | ✅ 200 |
 | Measured RSS (server + worker) | **259–364 MB** |
+| Daily encrypted backups | ✅ 3 archives, AES-256-GCM, 7-file retention |
+| Export/import (machine migration) | ✅ verified 2-instance migration, encrypted restore |
+| MCP servers | ✅ 12 connected (router-gateway, grafana×2, metabase×2, lark-chat, tldraw, jam, duckdb, aws-mcp) |
+| Providers | ✅ 9router (General, General_Opencode), 9router-test |
+| Single profile | ✅ `Default Bot`, model pinned to `General` (200k/32k) |
 
 ## Requirements
 
@@ -267,6 +272,10 @@ registered but not attached to a profile):
 Providers: `9router` (`General` 200k/32k, `General_Opencode` 128k/32k, `wire_api=responses`) and
 `9router-test` (`ROUTER9_TEST_API_KEY`). Both use `type=openai_compatible`, and the key is written
 through `PUT /v1/providers/:id/secret`, never `PUT /v1/providers/:id` — that route rejects inline keys.
+
+One profile only: `Default Bot`, with `model = <providerId>::General` set explicitly (see
+`changelog/20261107-NAKAMA-006`). `Super Nakama` was deleted — it is the only profile type allowed to
+create profiles from inside a chat, so new agents now come from the dashboard.
 
 The `[WARN] StorageManager ... unknown error` lines on stderr are the built-in OAuth token store
 failing to reach a keychain in a headless child — harmless, the app-credential path works.
